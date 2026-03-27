@@ -56,33 +56,135 @@ const StatusButtons = ({ current, onChange }) => (
   </div>
 );
 
-// ─── Main Component ──────────────────────────────────────────────────────────
-export default function App() {
-  const [loading, setLoading] = useState(true);
-  const [saving,  setSaving]  = useState(false);
-  const [saveMsg, setSaveMsg] = useState(""); // "" | "ok" | "err"
-  const [page,    setPage]    = useState("dashboard");
-  const [selGid,  setSelGid]  = useState(null);
-  const [selMid,  setSelMid]  = useState(null);
-  const [gTab,    setGTab]    = useState("members");
-  const [rGid,    setRGid]    = useState(null);
-  const [side,    setSide]    = useState(true);
-  const [groups,  setGroups]  = useState([]);
-  const [members, setMembers] = useState([]);
-  const [meetings,setMeetings]= useState([]);
-  const [att,     setAtt]     = useState([]);
-  const [modal,   setModal]   = useState(null);
-  const [form,    setForm]    = useState({});
+// ─── Auth Screens ────────────────────────────────────────────────────────────
+function AuthScreen() {
+  const [mode, setMode]     = useState("login"); // "login" | "register"
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState("");
+  const [success, setSuccess]   = useState("");
 
-  // ── Load all data from Supabase on mount ──
+  const fakeEmail = u => `${u.toLowerCase().trim()}@umadesc.app`;
+
+  const handleRegister = async () => {
+    setError(""); setSuccess("");
+    if (!username.trim() || !password) { setError("Preencha todos os campos."); return; }
+    if (username.trim().length < 3) { setError("Username deve ter ao menos 3 caracteres."); return; }
+    if (password.length < 6) { setError("Senha deve ter ao menos 6 caracteres."); return; }
+    setLoading(true);
+    const email = fakeEmail(username);
+    const { data, error: err } = await supabase.auth.signUp({ email, password });
+    if (err) { setError(err.message === "User already registered" ? "Este username já está em uso." : err.message); setLoading(false); return; }
+    if (data.user) {
+      await supabase.from("profiles").insert({ id: data.user.id, username: username.trim() });
+      setSuccess("Conta criada com sucesso! Faça login.");
+      setMode("login"); setUsername(""); setPassword("");
+    }
+    setLoading(false);
+  };
+
+  const handleLogin = async () => {
+    setError(""); setSuccess("");
+    if (!username.trim() || !password) { setError("Preencha todos os campos."); return; }
+    setLoading(true);
+    const { error: err } = await supabase.auth.signInWithPassword({ email: fakeEmail(username), password });
+    if (err) setError("Username ou senha incorretos.");
+    setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter','Segoe UI',sans-serif",padding:16}}>
+      <div style={{width:"100%",maxWidth:400}}>
+        {/* Logo */}
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{width:72,height:72,borderRadius:24,background:`linear-gradient(135deg,${C.pri},#7c3aed)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,margin:"0 auto 16px"}}>🎯</div>
+          <div style={{fontWeight:900,fontSize:24,color:C.text,letterSpacing:-0.5}}>UMADESC</div>
+          <div style={{fontSize:11,color:C.muted,fontWeight:600,letterSpacing:2,marginTop:2}}>CONTROL SYSTEM</div>
+        </div>
+
+        <div style={{...card,padding:32}}>
+          {/* Tab switcher */}
+          <div style={{display:"flex",background:"#f1f5f9",borderRadius:10,padding:4,marginBottom:28}}>
+            {["login","register"].map(m=>(
+              <button key={m} onClick={()=>{setMode(m);setError("");setSuccess("");}} style={{flex:1,padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:14,fontFamily:"inherit",background:mode===m?`linear-gradient(135deg,${C.pri},${C.priD})`:"transparent",color:mode===m?"white":C.muted,transition:"all 0.2s"}}>
+                {m==="login"?"Entrar":"Cadastrar"}
+              </button>
+            ))}
+          </div>
+
+          <h2 style={{fontSize:18,fontWeight:700,color:C.text,margin:"0 0 20px"}}>
+            {mode==="login"?"Bem-vindo de volta!":"Criar nova conta"}
+          </h2>
+
+          <div style={{display:"grid",gap:14}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>USERNAME</div>
+              <input style={inp} placeholder="Seu username..." value={username} onChange={e=>setUsername(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&(mode==="login"?handleLogin():handleRegister())} autoFocus />
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>SENHA</div>
+              <input type="password" style={inp} placeholder="Sua senha..." value={password} onChange={e=>setPassword(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&(mode==="login"?handleLogin():handleRegister())} />
+            </div>
+          </div>
+
+          {error   && <div style={{marginTop:14,padding:"10px 14px",borderRadius:8,background:"#fee2e2",color:"#dc2626",fontSize:13,fontWeight:600}}>⚠️ {error}</div>}
+          {success && <div style={{marginTop:14,padding:"10px 14px",borderRadius:8,background:"#dcfce7",color:"#16a34a",fontSize:13,fontWeight:600}}>✅ {success}</div>}
+
+          <button style={{...btnStyle("primary",{width:"100%",marginTop:20,padding:"13px 0",fontSize:15}), opacity:loading?0.7:1}}
+            onClick={mode==="login"?handleLogin:handleRegister} disabled={loading}>
+            {loading ? "Aguarde..." : mode==="login" ? "Entrar" : "Criar conta"}
+          </button>
+        </div>
+        <p style={{textAlign:"center",color:C.muted,fontSize:12,marginTop:16}}>UMADESC Control © {new Date().getFullYear()}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main App ────────────────────────────────────────────────────────────────
+export default function App() {
+  const [session,  setSession]  = useState(undefined); // undefined = loading
+  const [username, setUsername] = useState("");
+  const [loading,  setLoading]  = useState(true);
+  const [saving,   setSaving]   = useState(false);
+  const [saveMsg,  setSaveMsg]  = useState("");
+  const [page,     setPage]     = useState("dashboard");
+  const [selGid,   setSelGid]   = useState(null);
+  const [selMid,   setSelMid]   = useState(null);
+  const [gTab,     setGTab]     = useState("members");
+  const [rGid,     setRGid]     = useState(null);
+  const [side,     setSide]     = useState(true);
+  const [groups,   setGroups]   = useState([]);
+  const [members,  setMembers]  = useState([]);
+  const [meetings, setMeetings] = useState([]);
+  const [att,      setAtt]      = useState([]);
+  const [modal,    setModal]    = useState(null);
+  const [form,     setForm]     = useState({});
+
+  // Listen to auth state
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setSession(session));
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Load data when session changes
+  useEffect(() => {
+    if (!session) { setLoading(false); return; }
+    setLoading(true);
     async function fetchAll() {
-      const [{ data: g }, { data: m }, { data: mt }, { data: a }] = await Promise.all([
-        supabase.from("groups").select("*").order("id"),
+      const uid = session.user.id;
+      const [{ data: prof }, { data: g }, { data: m }, { data: mt }, { data: a }] = await Promise.all([
+        supabase.from("profiles").select("username").eq("id", uid).single(),
+        supabase.from("groups").select("*").eq("user_id", uid).order("id"),
         supabase.from("members").select("*").order("id"),
         supabase.from("meetings").select("*").order("date", { ascending: false }),
         supabase.from("attendance").select("*"),
       ]);
+      setUsername(prof?.username || "");
       setGroups(g || []);
       setMembers(m || []);
       setMeetings(mt || []);
@@ -91,11 +193,17 @@ export default function App() {
       setLoading(false);
     }
     fetchAll();
-  }, []);
+  }, [session]);
 
   const flash = ok => { setSaveMsg(ok?"ok":"err"); setTimeout(()=>setSaveMsg(""),2000); };
 
-  // ── Derived data ──
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setGroups([]); setMembers([]); setMeetings([]); setAtt([]);
+    setPage("dashboard"); setSelGid(null); setSelMid(null); setRGid(null);
+  };
+
+  // ── Derived ──
   const gMems  = gid => members.filter(m => m.gid===gid);
   const gMeets = gid => meetings.filter(m => m.gid===gid).sort((a,b)=>new Date(b.date)-new Date(a.date));
   const getStatus = (mid, mbid) => att.find(a=>a.mid===mid&&a.mbid===mbid)?.status || "absent";
@@ -104,43 +212,30 @@ export default function App() {
   const mtCounts = (mid, gid) => { const mbs=members.filter(m=>m.gid===gid); return { present:mbs.filter(mb=>getStatus(mid,mb.id)==="present").length, absent:mbs.filter(mb=>getStatus(mid,mb.id)==="absent").length, justified:mbs.filter(mb=>getStatus(mid,mb.id)==="justified").length, total:mbs.length }; };
   const mtFreq = (mid, gid) => { const mbs=members.filter(m=>m.gid===gid); if(!mbs.length)return 0; return Math.round(mbs.filter(mb=>getStatus(mid,mb.id)==="present").length/mbs.length*100); };
 
-  // ── CRUD: Groups ──
+  // ── CRUD ──
   const addGroup = async () => {
     if (!form.name?.trim()) return;
     setSaving(true);
-    const { data, error } = await supabase.from("groups").insert({ name:form.name.trim(), description:form.desc?.trim()||"" }).select().single();
+    const { data, error } = await supabase.from("groups").insert({ name:form.name.trim(), description:form.desc?.trim()||"", user_id:session.user.id }).select().single();
     if (!error) { setGroups(g=>[...g,data]); if(!rGid)setRGid(data.id); flash(true); }
     else flash(false);
     setSaving(false); setModal(null); setForm({});
   };
   const delGroup = async id => {
     const { error } = await supabase.from("groups").delete().eq("id", id);
-    if (!error) {
-      const mids = meetings.filter(m=>m.gid===id).map(m=>m.id);
-      setGroups(g=>g.filter(g=>g.id!==id));
-      setMembers(m=>m.filter(m=>m.gid!==id));
-      setMeetings(m=>m.filter(m=>m.gid!==id));
-      setAtt(a=>a.filter(a=>!mids.includes(a.mid)));
-      flash(true);
-    } else flash(false);
+    if (!error) { const mids=meetings.filter(m=>m.gid===id).map(m=>m.id); setGroups(g=>g.filter(g=>g.id!==id)); setMembers(m=>m.filter(m=>m.gid!==id)); setMeetings(m=>m.filter(m=>m.gid!==id)); setAtt(a=>a.filter(a=>!mids.includes(a.mid))); flash(true); } else flash(false);
   };
-
-  // ── CRUD: Members ──
   const addMember = async () => {
     if (!form.name?.trim()) return;
     setSaving(true);
     const { data, error } = await supabase.from("members").insert({ gid:selGid, name:form.name.trim(), phone:form.phone?.trim()||"" }).select().single();
-    if (!error) { setMembers(m=>[...m,data]); flash(true); }
-    else flash(false);
+    if (!error) { setMembers(m=>[...m,data]); flash(true); } else flash(false);
     setSaving(false); setModal(null); setForm({});
   };
   const delMember = async id => {
     const { error } = await supabase.from("members").delete().eq("id", id);
-    if (!error) { setMembers(m=>m.filter(m=>m.id!==id)); setAtt(a=>a.filter(a=>a.mbid!==id)); flash(true); }
-    else flash(false);
+    if (!error) { setMembers(m=>m.filter(m=>m.id!==id)); setAtt(a=>a.filter(a=>a.mbid!==id)); flash(true); } else flash(false);
   };
-
-  // ── CRUD: Meetings ──
   const addMeeting = async () => {
     if (!form.date) return;
     setSaving(true);
@@ -148,31 +243,19 @@ export default function App() {
     if (!error) {
       setMeetings(m=>[mt,...m]);
       const mbs = gMems(selGid);
-      if (mbs.length) {
-        const rows = mbs.map(mb=>({ mid:mt.id, mbid:mb.id, status:"absent" }));
-        const { data: attData } = await supabase.from("attendance").insert(rows).select();
-        if (attData) setAtt(a=>[...a,...attData]);
-      }
+      if (mbs.length) { const rows=mbs.map(mb=>({mid:mt.id,mbid:mb.id,status:"absent"})); const { data: ad } = await supabase.from("attendance").insert(rows).select(); if(ad) setAtt(a=>[...a,...ad]); }
       flash(true);
     } else flash(false);
     setSaving(false); setModal(null); setForm({});
   };
   const delMeeting = async id => {
     const { error } = await supabase.from("meetings").delete().eq("id", id);
-    if (!error) { setMeetings(m=>m.filter(m=>m.id!==id)); setAtt(a=>a.filter(a=>a.mid!==id)); flash(true); }
-    else flash(false);
+    if (!error) { setMeetings(m=>m.filter(m=>m.id!==id)); setAtt(a=>a.filter(a=>a.mid!==id)); flash(true); } else flash(false);
   };
-
-  // ── Attendance ──
   const setStatus = async (mid, mbid, status) => {
     const ex = att.find(a=>a.mid===mid&&a.mbid===mbid);
-    if (ex) {
-      const { error } = await supabase.from("attendance").update({ status }).eq("id", ex.id);
-      if (!error) setAtt(a=>a.map(a=>a.id===ex.id?{...a,status}:a));
-    } else {
-      const { data, error } = await supabase.from("attendance").insert({ mid, mbid, status }).select().single();
-      if (!error) setAtt(a=>[...a,data]);
-    }
+    if (ex) { const { error } = await supabase.from("attendance").update({ status }).eq("id", ex.id); if(!error) setAtt(a=>a.map(a=>a.id===ex.id?{...a,status}:a)); }
+    else { const { data, error } = await supabase.from("attendance").insert({ mid, mbid, status }).select().single(); if(!error) setAtt(a=>[...a,data]); }
   };
 
   const selGroup   = groups.find(g=>g.id===selGid);
@@ -181,14 +264,16 @@ export default function App() {
   const navItems   = [{id:"dashboard",label:"Dashboard",icon:"📊"},{id:"groups",label:"Grupos",icon:"👥"},{id:"reports",label:"Relatórios",icon:"📋"}];
   const navActive  = id => (id==="groups"&&["group-detail","attendance"].includes(page))||page===id;
 
-  // ── Loading screen ──
-  if (loading) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:C.bg,flexDirection:"column",gap:16}}>
+  // ── Auth check ──
+  if (session === undefined || (session && loading)) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:C.bg,flexDirection:"column",gap:16,fontFamily:"'Inter','Segoe UI',sans-serif"}}>
       <div style={{width:56,height:56,borderRadius:18,background:`linear-gradient(135deg,${C.pri},#7c3aed)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🎯</div>
       <div style={{fontWeight:800,fontSize:18,color:C.text}}>UMADESC Control</div>
-      <div style={{color:C.muted,fontSize:14}}>Carregando dados...</div>
+      <div style={{color:C.muted,fontSize:14}}>Carregando...</div>
     </div>
   );
+
+  if (!session) return <AuthScreen />;
 
   // ── Modal ──
   const renderModal = () => {
@@ -214,12 +299,12 @@ export default function App() {
     );
   };
 
-  // ── Dashboard ──
+  // ── Pages ──
   const renderDashboard = () => {
     const avg=groups.length?Math.round(groups.reduce((s,g)=>s+gFreq(g.id),0)/groups.length):0;
     return (
       <div>
-        <div style={{marginBottom:28}}><h1 style={{fontSize:28,fontWeight:800,color:C.text,margin:0}}>Dashboard</h1><p style={{color:C.muted,margin:"4px 0 0"}}>Bem-vindo ao UMADESC Control</p></div>
+        <div style={{marginBottom:28}}><h1 style={{fontSize:28,fontWeight:800,color:C.text,margin:0}}>Dashboard</h1><p style={{color:C.muted,margin:"4px 0 0"}}>Bem-vindo, {username}!</p></div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:24}}>
           {[{l:"Grupos",v:groups.length,i:"👥",c:C.pri,bg:"#dbeafe"},{l:"Membros",v:members.length,i:"👤",c:"#7c3aed",bg:"#ede9fe"},{l:"Encontros",v:meetings.length,i:"📅",c:"#0891b2",bg:"#cffafe"},{l:"Freq. Média",v:`${avg}%`,i:"📈",c:"#059669",bg:"#d1fae5"}].map(s=>(
             <div key={s.l} style={{...card,display:"flex",alignItems:"center",gap:14}}>
@@ -247,7 +332,6 @@ export default function App() {
     );
   };
 
-  // ── Groups ──
   const renderGroups = () => (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
@@ -279,7 +363,6 @@ export default function App() {
     </div>
   );
 
-  // ── Group Detail ──
   const renderGroupDetail = () => {
     if (!selGroup) return null;
     const mbs=gMems(selGroup.id), mts=gMeets(selGroup.id);
@@ -335,11 +418,10 @@ export default function App() {
     );
   };
 
-  // ── Attendance ──
   const renderAttendance = () => {
     if (!selMeeting) return null;
     const gid=selMeeting.gid, group=groups.find(g=>g.id===gid), mbs=gMems(gid);
-    const cn = { present:mbs.filter(mb=>getStatus(selMeeting.id,mb.id)==="present").length, absent:mbs.filter(mb=>getStatus(selMeeting.id,mb.id)==="absent").length, justified:mbs.filter(mb=>getStatus(selMeeting.id,mb.id)==="justified").length };
+    const cn={present:mbs.filter(mb=>getStatus(selMeeting.id,mb.id)==="present").length,absent:mbs.filter(mb=>getStatus(selMeeting.id,mb.id)==="absent").length,justified:mbs.filter(mb=>getStatus(selMeeting.id,mb.id)==="justified").length};
     const {day,mon}=fmtShort(selMeeting.date);
     return (
       <div>
@@ -362,23 +444,19 @@ export default function App() {
         <div style={card}>
           <h2 style={{fontSize:17,fontWeight:700,color:C.text,marginBottom:16}}>Lista de Membros</h2>
           {mbs.length===0?<p style={{color:C.muted,textAlign:"center",padding:24}}>Nenhum membro neste grupo.</p>
-          :mbs.map(mb=>{
-            const s=getStatus(selMeeting.id,mb.id), m=STATUS_META[s];
-            return(
-              <div key={mb.id} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:12,marginBottom:10,background:m.bg,border:`2px solid ${m.border}`,transition:"all 0.2s",flexWrap:"wrap"}}>
-                <Avatar name={mb.name} size={42} g={s==="present"?"#22c55e,#16a34a":s==="justified"?"#f59e0b,#d97706":"#94a3b8,#64748b"}/>
-                <div style={{flex:1,minWidth:120}}><div style={{fontWeight:600,color:C.text}}>{mb.name}</div><div style={{fontSize:12,color:C.muted}}>{mb.phone||"Sem telefone"}</div></div>
-                <span style={{padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:700,background:m.chip_bg,color:m.chip_c,whiteSpace:"nowrap"}}>{m.icon} {m.label}</span>
-                <StatusButtons current={s} onChange={ns=>setStatus(selMeeting.id,mb.id,ns)}/>
-              </div>
-            );
-          })}
+          :mbs.map(mb=>{const s=getStatus(selMeeting.id,mb.id),m=STATUS_META[s];return(
+            <div key={mb.id} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:12,marginBottom:10,background:m.bg,border:`2px solid ${m.border}`,transition:"all 0.2s",flexWrap:"wrap"}}>
+              <Avatar name={mb.name} size={42} g={s==="present"?"#22c55e,#16a34a":s==="justified"?"#f59e0b,#d97706":"#94a3b8,#64748b"}/>
+              <div style={{flex:1,minWidth:120}}><div style={{fontWeight:600,color:C.text}}>{mb.name}</div><div style={{fontSize:12,color:C.muted}}>{mb.phone||"Sem telefone"}</div></div>
+              <span style={{padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:700,background:m.chip_bg,color:m.chip_c,whiteSpace:"nowrap"}}>{m.icon} {m.label}</span>
+              <StatusButtons current={s} onChange={ns=>setStatus(selMeeting.id,mb.id,ns)}/>
+            </div>
+          );})}
         </div>
       </div>
     );
   };
 
-  // ── Reports ──
   const renderReports = () => {
     const mbs=rGroup?gMems(rGroup.id):[], mts=rGroup?[...gMeets(rGroup.id)].sort((a,b)=>new Date(a.date)-new Date(b.date)):[], f=rGroup?gFreq(rGroup.id):0;
     return (
@@ -387,9 +465,7 @@ export default function App() {
         <div style={{...card,marginBottom:20}}>
           <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:10,letterSpacing:0.5}}>SELECIONAR GRUPO</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            {groups.map(g=>(
-              <button key={g.id} onClick={()=>setRGid(g.id)} style={{padding:"9px 18px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:600,fontSize:14,fontFamily:"inherit",background:rGid===g.id?`linear-gradient(135deg,${C.pri},${C.priD})`:"#f1f5f9",color:rGid===g.id?"white":C.text,transition:"all 0.2s"}}>{g.name}</button>
-            ))}
+            {groups.map(g=>(<button key={g.id} onClick={()=>setRGid(g.id)} style={{padding:"9px 18px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:600,fontSize:14,fontFamily:"inherit",background:rGid===g.id?`linear-gradient(135deg,${C.pri},${C.priD})`:"#f1f5f9",color:rGid===g.id?"white":C.text,transition:"all 0.2s"}}>{g.name}</button>))}
             {groups.length===0&&<p style={{color:C.muted,margin:0}}>Nenhum grupo disponível.</p>}
           </div>
         </div>
@@ -452,10 +528,8 @@ export default function App() {
     );
   };
 
-  // ── Layout ──
   return (
     <div style={{display:"flex",minHeight:"100vh",fontFamily:"'Inter','Segoe UI',sans-serif",background:C.bg}}>
-      {/* Sidebar */}
       <div style={{width:side?228:64,background:C.sideBg,display:"flex",flexDirection:"column",transition:"width 0.3s ease",overflow:"hidden",flexShrink:0,boxShadow:"4px 0 24px rgba(0,0,0,0.18)"}}>
         <div style={{padding:side?"24px 20px":"24px 12px",borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
           {side?<div><div style={{fontWeight:900,fontSize:17,color:"white",letterSpacing:-0.5,lineHeight:1.2}}>UMADESC</div><div style={{fontSize:10,color:"#93c5fd",fontWeight:600,letterSpacing:1.5,marginTop:2}}>CONTROL SYSTEM</div></div>
@@ -468,19 +542,23 @@ export default function App() {
             </div>
           ))}
         </nav>
-        <div style={{padding:"10px 16px",borderTop:"1px solid rgba(255,255,255,0.08)",minHeight:40,display:"flex",alignItems:"center",justifyContent:side?"flex-start":"center"}}>
-          {saveMsg==="ok" ? <span style={{fontSize:12,color:"#86efac",fontWeight:600,display:"flex",alignItems:"center",gap:6}}>✓{side&&" Salvo!"}</span>
-          : saveMsg==="err" ? <span style={{fontSize:12,color:"#fca5a5",fontWeight:600,display:"flex",alignItems:"center",gap:6}}>⚠️{side&&" Erro ao salvar"}</span>
-          : saving ? <span style={{fontSize:11,color:"rgba(255,255,255,0.45)",display:"flex",alignItems:"center",gap:6}}>⏳{side&&" Salvando..."}</span>
-          : <span style={{fontSize:11,color:"rgba(255,255,255,0.25)",display:"flex",alignItems:"center",gap:6}}>☁️{side&&" Supabase"}</span>}
-        </div>
-        <div style={{padding:"8px 8px 16px"}}>
+        {/* User info + logout */}
+        {side&&<div style={{padding:"12px 16px",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            <Avatar name={username} size={32} g="#2563eb,#7c3aed"/>
+            <div><div style={{fontSize:13,fontWeight:700,color:"white"}}>{username}</div><div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>logado</div></div>
+          </div>
+          <button onClick={handleLogout} style={{width:"100%",padding:"8px 0",borderRadius:8,border:"1px solid rgba(255,255,255,0.15)",background:"transparent",color:"rgba(255,255,255,0.5)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Sair →</button>
+        </div>}
+        {!side&&<div style={{padding:"12px 8px",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
+          <div onClick={handleLogout} style={{display:"flex",justifyContent:"center",cursor:"pointer",fontSize:16,color:"rgba(255,255,255,0.4)",padding:"8px 0"}} title="Sair">🚪</div>
+        </div>}
+        <div style={{padding:"4px 8px 16px"}}>
           <div onClick={()=>setSide(!side)} style={{display:"flex",alignItems:"center",justifyContent:side?"flex-end":"center",padding:"8px 14px",cursor:"pointer",color:"rgba(255,255,255,0.35)",borderRadius:8,fontSize:18}}>
             {side?"◀":"▶"}
           </div>
         </div>
       </div>
-      {/* Main */}
       <main style={{flex:1,padding:28,overflowY:"auto",maxHeight:"100vh"}}>
         {page==="dashboard"&&renderDashboard()}
         {page==="groups"&&renderGroups()}
