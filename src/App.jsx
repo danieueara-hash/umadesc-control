@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabase";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -11,6 +11,33 @@ const fBg    = f => f>=75?"#dcfce7":f>=50?"#fef3c7":"#fee2e2";
 const fLabel = f => f>=75?"Ótimo":f>=50?"Regular":"Baixo";
 const fmtDate  = d => new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
 const fmtShort = d => { const dt=new Date(d+"T12:00:00"); return { day:dt.getDate(), mon:dt.toLocaleDateString("pt-BR",{month:"short"}).replace(".","").toUpperCase() }; };
+const fmtDateBR = d => d ? new Date(d+"T12:00:00").toLocaleDateString("pt-BR") : "—";
+
+// Birthday helpers
+const calcAge = dob => {
+  if (!dob) return null;
+  const today = new Date(), birth = new Date(dob+"T12:00:00");
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+};
+const daysUntilBirthday = dob => {
+  if (!dob) return null;
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const birth = new Date(dob+"T00:00:00");
+  let next = new Date(today.getFullYear(), birth.getMonth(), birth.getDate());
+  if (next < today) next = new Date(today.getFullYear()+1, birth.getMonth(), birth.getDate());
+  return Math.round((next - today) / 86400000);
+};
+const birthdayStatus = dob => {
+  const d = daysUntilBirthday(dob);
+  if (d === null) return null;
+  if (d === 0) return { type:"today", label:"🎂 Aniversário hoje!", color:"#7c3aed", bg:"#f3e8ff", border:"#c4b5fd" };
+  if (d <= 7)  return { type:"soon",  label:`🎉 Aniversário em ${d} dia${d>1?"s":""}!`, color:"#b45309", bg:"#fef3c7", border:"#fde68a" };
+  return null;
+};
 
 const STATUS_META = {
   present:   { label:"Presente",         icon:"✅", bg:"#f0fdf4", border:"#bbf7d0", chip_bg:"#dcfce7", chip_c:"#16a34a" },
@@ -49,16 +76,30 @@ const StatusButtons = ({ current, onChange }) => (
         background: current===key ? m.chip_bg : "white",
         color: current===key ? m.chip_c : C.muted,
         transition:"all 0.15s", whiteSpace:"nowrap",
-      }}>
-        {m.icon} {m.label}
-      </button>
+      }}>{m.icon} {m.label}</button>
     ))}
   </div>
 );
 
-// ─── Auth Screens ────────────────────────────────────────────────────────────
+// Birthday badge inline
+const BirthdayBadge = ({ dob, inline=false }) => {
+  const s = birthdayStatus(dob);
+  if (!s) return null;
+  return (
+    <span style={{
+      display:"inline-flex", alignItems:"center", gap:4,
+      padding: inline?"3px 10px":"6px 14px",
+      borderRadius:20, fontSize: inline?11:13, fontWeight:700,
+      background:s.bg, color:s.color, border:`1.5px solid ${s.border}`,
+      whiteSpace:"nowrap",
+      animation: s.type==="today"?"pulse 1.5s ease-in-out infinite":undefined,
+    }}>{s.label}</span>
+  );
+};
+
+// ─── Auth Screen ─────────────────────────────────────────────────────────────
 function AuthScreen() {
-  const [mode, setMode]     = useState("login"); // "login" | "register"
+  const [mode, setMode]         = useState("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading]   = useState(false);
@@ -69,26 +110,23 @@ function AuthScreen() {
 
   const handleRegister = async () => {
     setError(""); setSuccess("");
-    if (!username.trim() || !password) { setError("Preencha todos os campos."); return; }
-    if (username.trim().length < 3) { setError("Username deve ter ao menos 3 caracteres."); return; }
-    if (password.length < 6) { setError("Senha deve ter ao menos 6 caracteres."); return; }
+    if (!username.trim()||!password) { setError("Preencha todos os campos."); return; }
+    if (username.trim().length<3)    { setError("Username deve ter ao menos 3 caracteres."); return; }
+    if (password.length<6)           { setError("Senha deve ter ao menos 6 caracteres."); return; }
     setLoading(true);
-    const email = fakeEmail(username);
-    const { data, error: err } = await supabase.auth.signUp({ email, password });
-    if (err) { setError(err.message === "User already registered" ? "Este username já está em uso." : err.message); setLoading(false); return; }
+    const { data, error: err } = await supabase.auth.signUp({ email:fakeEmail(username), password });
+    if (err) { setError(err.message==="User already registered"?"Este username já está em uso.":err.message); setLoading(false); return; }
     if (data.user) {
-      await supabase.from("profiles").insert({ id: data.user.id, username: username.trim() });
-      setSuccess("Conta criada com sucesso! Faça login.");
-      setMode("login"); setUsername(""); setPassword("");
+      await supabase.from("profiles").insert({ id:data.user.id, username:username.trim() });
+      setSuccess("Conta criada! Faça login."); setMode("login"); setUsername(""); setPassword("");
     }
     setLoading(false);
   };
-
   const handleLogin = async () => {
     setError(""); setSuccess("");
-    if (!username.trim() || !password) { setError("Preencha todos os campos."); return; }
+    if (!username.trim()||!password) { setError("Preencha todos os campos."); return; }
     setLoading(true);
-    const { error: err } = await supabase.auth.signInWithPassword({ email: fakeEmail(username), password });
+    const { error: err } = await supabase.auth.signInWithPassword({ email:fakeEmail(username), password });
     if (err) setError("Username ou senha incorretos.");
     setLoading(false);
   };
@@ -96,15 +134,12 @@ function AuthScreen() {
   return (
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter','Segoe UI',sans-serif",padding:16}}>
       <div style={{width:"100%",maxWidth:400}}>
-        {/* Logo */}
         <div style={{textAlign:"center",marginBottom:32}}>
           <div style={{width:72,height:72,borderRadius:24,background:`linear-gradient(135deg,${C.pri},#7c3aed)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,margin:"0 auto 16px"}}>🎯</div>
           <div style={{fontWeight:900,fontSize:24,color:C.text,letterSpacing:-0.5}}>UMADESC</div>
           <div style={{fontSize:11,color:C.muted,fontWeight:600,letterSpacing:2,marginTop:2}}>CONTROL SYSTEM</div>
         </div>
-
         <div style={{...card,padding:32}}>
-          {/* Tab switcher */}
           <div style={{display:"flex",background:"#f1f5f9",borderRadius:10,padding:4,marginBottom:28}}>
             {["login","register"].map(m=>(
               <button key={m} onClick={()=>{setMode(m);setError("");setSuccess("");}} style={{flex:1,padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:14,fontFamily:"inherit",background:mode===m?`linear-gradient(135deg,${C.pri},${C.priD})`:"transparent",color:mode===m?"white":C.muted,transition:"all 0.2s"}}>
@@ -112,30 +147,15 @@ function AuthScreen() {
               </button>
             ))}
           </div>
-
-          <h2 style={{fontSize:18,fontWeight:700,color:C.text,margin:"0 0 20px"}}>
-            {mode==="login"?"Bem-vindo de volta!":"Criar nova conta"}
-          </h2>
-
+          <h2 style={{fontSize:18,fontWeight:700,color:C.text,margin:"0 0 20px"}}>{mode==="login"?"Bem-vindo de volta!":"Criar nova conta"}</h2>
           <div style={{display:"grid",gap:14}}>
-            <div>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>USERNAME</div>
-              <input style={inp} placeholder="Seu username..." value={username} onChange={e=>setUsername(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&(mode==="login"?handleLogin():handleRegister())} autoFocus />
-            </div>
-            <div>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>SENHA</div>
-              <input type="password" style={inp} placeholder="Sua senha..." value={password} onChange={e=>setPassword(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&(mode==="login"?handleLogin():handleRegister())} />
-            </div>
+            <div><div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>USERNAME</div><input style={inp} placeholder="Seu username..." value={username} onChange={e=>setUsername(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(mode==="login"?handleLogin():handleRegister())} autoFocus /></div>
+            <div><div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>SENHA</div><input type="password" style={inp} placeholder="Sua senha..." value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(mode==="login"?handleLogin():handleRegister())} /></div>
           </div>
-
           {error   && <div style={{marginTop:14,padding:"10px 14px",borderRadius:8,background:"#fee2e2",color:"#dc2626",fontSize:13,fontWeight:600}}>⚠️ {error}</div>}
           {success && <div style={{marginTop:14,padding:"10px 14px",borderRadius:8,background:"#dcfce7",color:"#16a34a",fontSize:13,fontWeight:600}}>✅ {success}</div>}
-
-          <button style={{...btnStyle("primary",{width:"100%",marginTop:20,padding:"13px 0",fontSize:15}), opacity:loading?0.7:1}}
-            onClick={mode==="login"?handleLogin:handleRegister} disabled={loading}>
-            {loading ? "Aguarde..." : mode==="login" ? "Entrar" : "Criar conta"}
+          <button style={{...btnStyle("primary",{width:"100%",marginTop:20,padding:"13px 0",fontSize:15}),opacity:loading?0.7:1}} onClick={mode==="login"?handleLogin:handleRegister} disabled={loading}>
+            {loading?"Aguarde...":mode==="login"?"Entrar":"Criar conta"}
           </button>
         </div>
         <p style={{textAlign:"center",color:C.muted,fontSize:12,marginTop:16}}>UMADESC Control © {new Date().getFullYear()}</p>
@@ -146,7 +166,7 @@ function AuthScreen() {
 
 // ─── Main App ────────────────────────────────────────────────────────────────
 export default function App() {
-  const [session,  setSession]  = useState(undefined); // undefined = loading
+  const [session,  setSession]  = useState(undefined);
   const [username, setUsername] = useState("");
   const [loading,  setLoading]  = useState(true);
   const [saving,   setSaving]   = useState(false);
@@ -164,14 +184,12 @@ export default function App() {
   const [modal,    setModal]    = useState(null);
   const [form,     setForm]     = useState({});
 
-  // Listen to auth state
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load data when session changes
   useEffect(() => {
     if (!session) { setLoading(false); return; }
     setLoading(true);
@@ -184,11 +202,8 @@ export default function App() {
         supabase.from("meetings").select("*").order("date", { ascending: false }),
         supabase.from("attendance").select("*"),
       ]);
-      setUsername(prof?.username || "");
-      setGroups(g || []);
-      setMembers(m || []);
-      setMeetings(mt || []);
-      setAtt(a || []);
+      setUsername(prof?.username||"");
+      setGroups(g||[]); setMembers(m||[]); setMeetings(mt||[]); setAtt(a||[]);
       if (g?.length) setRGid(g[0].id);
       setLoading(false);
     }
@@ -196,6 +211,14 @@ export default function App() {
   }, [session]);
 
   const flash = ok => { setSaveMsg(ok?"ok":"err"); setTimeout(()=>setSaveMsg(""),2000); };
+
+  // Birthday notifications for all members
+  const birthdayAlerts = useMemo(() => {
+    return members
+      .map(mb => ({ ...mb, bStatus: birthdayStatus(mb.birthdate) }))
+      .filter(mb => mb.bStatus !== null)
+      .sort((a,b) => daysUntilBirthday(a.birthdate) - daysUntilBirthday(b.birthdate));
+  }, [members]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -206,31 +229,33 @@ export default function App() {
   // ── Derived ──
   const gMems  = gid => members.filter(m => m.gid===gid);
   const gMeets = gid => meetings.filter(m => m.gid===gid).sort((a,b)=>new Date(b.date)-new Date(a.date));
-  const getStatus = (mid, mbid) => att.find(a=>a.mid===mid&&a.mbid===mbid)?.status || "absent";
+  const getStatus = (mid, mbid) => att.find(a=>a.mid===mid&&a.mbid===mbid)?.status||"absent";
   const mFreq = (mbid, gid) => { const mts=meetings.filter(m=>m.gid===gid); if(!mts.length)return 0; return Math.round(mts.filter(mt=>getStatus(mt.id,mbid)==="present").length/mts.length*100); };
-  const gFreq = gid => { const mts=meetings.filter(m=>m.gid===gid), mbs=members.filter(m=>m.gid===gid); if(!mts.length||!mbs.length)return 0; return Math.round(att.filter(a=>mbs.some(m=>m.id===a.mbid)&&mts.some(m=>m.id===a.mid)&&a.status==="present").length/(mts.length*mbs.length)*100); };
+  const gFreq = gid => { const mts=meetings.filter(m=>m.gid===gid),mbs=members.filter(m=>m.gid===gid); if(!mts.length||!mbs.length)return 0; return Math.round(att.filter(a=>mbs.some(m=>m.id===a.mbid)&&mts.some(m=>m.id===a.mid)&&a.status==="present").length/(mts.length*mbs.length)*100); };
   const mtCounts = (mid, gid) => { const mbs=members.filter(m=>m.gid===gid); return { present:mbs.filter(mb=>getStatus(mid,mb.id)==="present").length, absent:mbs.filter(mb=>getStatus(mid,mb.id)==="absent").length, justified:mbs.filter(mb=>getStatus(mid,mb.id)==="justified").length, total:mbs.length }; };
   const mtFreq = (mid, gid) => { const mbs=members.filter(m=>m.gid===gid); if(!mbs.length)return 0; return Math.round(mbs.filter(mb=>getStatus(mid,mb.id)==="present").length/mbs.length*100); };
 
   // ── CRUD ──
+  const addMember = async () => {
+    if (!form.name?.trim()) return;
+    setSaving(true);
+    const { data, error } = await supabase.from("members").insert({
+      gid:selGid, name:form.name.trim(), phone:form.phone?.trim()||"",
+      birthdate:form.birthdate||null, conversion_date:form.conversion_date||null,
+    }).select().single();
+    if (!error) { setMembers(m=>[...m,data]); flash(true); } else flash(false);
+    setSaving(false); setModal(null); setForm({});
+  };
   const addGroup = async () => {
     if (!form.name?.trim()) return;
     setSaving(true);
     const { data, error } = await supabase.from("groups").insert({ name:form.name.trim(), description:form.desc?.trim()||"", user_id:session.user.id }).select().single();
-    if (!error) { setGroups(g=>[...g,data]); if(!rGid)setRGid(data.id); flash(true); }
-    else flash(false);
+    if (!error) { setGroups(g=>[...g,data]); if(!rGid)setRGid(data.id); flash(true); } else flash(false);
     setSaving(false); setModal(null); setForm({});
   };
   const delGroup = async id => {
     const { error } = await supabase.from("groups").delete().eq("id", id);
     if (!error) { const mids=meetings.filter(m=>m.gid===id).map(m=>m.id); setGroups(g=>g.filter(g=>g.id!==id)); setMembers(m=>m.filter(m=>m.gid!==id)); setMeetings(m=>m.filter(m=>m.gid!==id)); setAtt(a=>a.filter(a=>!mids.includes(a.mid))); flash(true); } else flash(false);
-  };
-  const addMember = async () => {
-    if (!form.name?.trim()) return;
-    setSaving(true);
-    const { data, error } = await supabase.from("members").insert({ gid:selGid, name:form.name.trim(), phone:form.phone?.trim()||"" }).select().single();
-    if (!error) { setMembers(m=>[...m,data]); flash(true); } else flash(false);
-    setSaving(false); setModal(null); setForm({});
   };
   const delMember = async id => {
     const { error } = await supabase.from("members").delete().eq("id", id);
@@ -242,8 +267,8 @@ export default function App() {
     const { data: mt, error } = await supabase.from("meetings").insert({ gid:selGid, date:form.date, description:form.desc?.trim()||"Encontro" }).select().single();
     if (!error) {
       setMeetings(m=>[mt,...m]);
-      const mbs = gMems(selGid);
-      if (mbs.length) { const rows=mbs.map(mb=>({mid:mt.id,mbid:mb.id,status:"absent"})); const { data: ad } = await supabase.from("attendance").insert(rows).select(); if(ad) setAtt(a=>[...a,...ad]); }
+      const mbs=gMems(selGid);
+      if (mbs.length) { const rows=mbs.map(mb=>({mid:mt.id,mbid:mb.id,status:"absent"})); const {data:ad}=await supabase.from("attendance").insert(rows).select(); if(ad) setAtt(a=>[...a,...ad]); }
       flash(true);
     } else flash(false);
     setSaving(false); setModal(null); setForm({});
@@ -253,9 +278,9 @@ export default function App() {
     if (!error) { setMeetings(m=>m.filter(m=>m.id!==id)); setAtt(a=>a.filter(a=>a.mid!==id)); flash(true); } else flash(false);
   };
   const setStatus = async (mid, mbid, status) => {
-    const ex = att.find(a=>a.mid===mid&&a.mbid===mbid);
-    if (ex) { const { error } = await supabase.from("attendance").update({ status }).eq("id", ex.id); if(!error) setAtt(a=>a.map(a=>a.id===ex.id?{...a,status}:a)); }
-    else { const { data, error } = await supabase.from("attendance").insert({ mid, mbid, status }).select().single(); if(!error) setAtt(a=>[...a,data]); }
+    const ex=att.find(a=>a.mid===mid&&a.mbid===mbid);
+    if (ex) { const {error}=await supabase.from("attendance").update({status}).eq("id",ex.id); if(!error) setAtt(a=>a.map(a=>a.id===ex.id?{...a,status}:a)); }
+    else { const {data,error}=await supabase.from("attendance").insert({mid,mbid,status}).select().single(); if(!error) setAtt(a=>[...a,data]); }
   };
 
   const selGroup   = groups.find(g=>g.id===selGid);
@@ -264,15 +289,13 @@ export default function App() {
   const navItems   = [{id:"dashboard",label:"Dashboard",icon:"📊"},{id:"groups",label:"Grupos",icon:"👥"},{id:"reports",label:"Relatórios",icon:"📋"}];
   const navActive  = id => (id==="groups"&&["group-detail","attendance"].includes(page))||page===id;
 
-  // ── Auth check ──
-  if (session === undefined || (session && loading)) return (
+  if (session===undefined||(session&&loading)) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:C.bg,flexDirection:"column",gap:16,fontFamily:"'Inter','Segoe UI',sans-serif"}}>
       <div style={{width:56,height:56,borderRadius:18,background:`linear-gradient(135deg,${C.pri},#7c3aed)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🎯</div>
       <div style={{fontWeight:800,fontSize:18,color:C.text}}>UMADESC Control</div>
       <div style={{color:C.muted,fontSize:14}}>Carregando...</div>
     </div>
   );
-
   if (!session) return <AuthScreen />;
 
   // ── Modal ──
@@ -281,12 +304,24 @@ export default function App() {
     const titles={a:"Novo Grupo",b:"Novo Membro",c:"Novo Encontro"};
     const saves={a:addGroup,b:addMember,c:addMeeting};
     return (
-      <div style={{position:"fixed",inset:0,background:"rgba(11,26,61,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={()=>setModal(null)}>
-        <div style={{background:"white",borderRadius:20,padding:32,width:420,maxWidth:"90vw",boxShadow:"0 24px 80px rgba(0,0,0,0.25)"}} onClick={e=>e.stopPropagation()}>
+      <div style={{position:"fixed",inset:0,background:"rgba(11,26,61,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999,overflowY:"auto",padding:16}} onClick={()=>setModal(null)}>
+        <div style={{background:"white",borderRadius:20,padding:32,width:440,maxWidth:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.25)",margin:"auto"}} onClick={e=>e.stopPropagation()}>
           <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:"0 0 24px"}}>{titles[modal]}</h2>
           <div style={{display:"grid",gap:14}}>
-            {(modal==="a"||modal==="b")&&<div><div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>NOME *</div><input style={inp} placeholder="Digite o nome..." value={form.name||""} onChange={e=>setForm({...form,name:e.target.value})} autoFocus /></div>}
-            {modal==="b"&&<div><div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>TELEFONE</div><input style={inp} placeholder="(00) 99999-9999" value={form.phone||""} onChange={e=>setForm({...form,phone:e.target.value})} /></div>}
+            {(modal==="a"||modal==="b")&&<div><div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>NOME *</div><input style={inp} placeholder="Nome completo..." value={form.name||""} onChange={e=>setForm({...form,name:e.target.value})} autoFocus /></div>}
+            {modal==="b"&&<>
+              <div><div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>TELEFONE</div><input style={inp} placeholder="(00) 99999-9999" value={form.phone||""} onChange={e=>setForm({...form,phone:e.target.value})} /></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>DATA DE NASCIMENTO</div>
+                  <input type="date" style={inp} value={form.birthdate||""} onChange={e=>setForm({...form,birthdate:e.target.value})} />
+                </div>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>DATA DE CONVERSÃO</div>
+                  <input type="date" style={inp} value={form.conversion_date||""} onChange={e=>setForm({...form,conversion_date:e.target.value})} />
+                </div>
+              </div>
+            </>}
             {(modal==="a"||modal==="c")&&<div><div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>DESCRIÇÃO</div><input style={inp} placeholder="Descrição..." value={form.desc||""} onChange={e=>setForm({...form,desc:e.target.value})} /></div>}
             {modal==="c"&&<div><div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,letterSpacing:0.5}}>DATA *</div><input type="date" style={inp} value={form.date||""} onChange={e=>setForm({...form,date:e.target.value})} /></div>}
           </div>
@@ -299,12 +334,33 @@ export default function App() {
     );
   };
 
-  // ── Pages ──
+  // ── Dashboard ──
   const renderDashboard = () => {
     const avg=groups.length?Math.round(groups.reduce((s,g)=>s+gFreq(g.id),0)/groups.length):0;
     return (
       <div>
-        <div style={{marginBottom:28}}><h1 style={{fontSize:28,fontWeight:800,color:C.text,margin:0}}>Dashboard</h1><p style={{color:C.muted,margin:"4px 0 0"}}>Bem-vindo, {username}!</p></div>
+        <div style={{marginBottom:24}}><h1 style={{fontSize:28,fontWeight:800,color:C.text,margin:0}}>Dashboard</h1><p style={{color:C.muted,margin:"4px 0 0"}}>Bem-vindo, {username}!</p></div>
+
+        {/* Birthday alerts */}
+        {birthdayAlerts.length>0&&(
+          <div style={{marginBottom:24}}>
+            {birthdayAlerts.map(mb=>(
+              <div key={mb.id} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 20px",borderRadius:14,marginBottom:8,background:mb.bStatus.bg,border:`1.5px solid ${mb.bStatus.border}`}}>
+                <span style={{fontSize:28}}>{mb.bStatus.type==="today"?"🎂":"🎉"}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,color:mb.bStatus.color,fontSize:15}}>{mb.bStatus.label.replace(/🎂|🎉/,"").trim()} — <span style={{color:C.text}}>{mb.name}</span></div>
+                  <div style={{fontSize:12,color:C.muted,marginTop:2}}>
+                    {mb.bStatus.type==="today"
+                      ? `Hoje completa ${calcAge(mb.birthdate)} anos! 🥳`
+                      : `Fará ${calcAge(mb.birthdate)+1} anos em ${daysUntilBirthday(mb.birthdate)} dia${daysUntilBirthday(mb.birthdate)>1?"s":""}`}
+                  </div>
+                </div>
+                {mb.bStatus.type==="today"&&<span style={{fontSize:24,animation:"pulse 1s ease-in-out infinite"}}>✨</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:24}}>
           {[{l:"Grupos",v:groups.length,i:"👥",c:C.pri,bg:"#dbeafe"},{l:"Membros",v:members.length,i:"👤",c:"#7c3aed",bg:"#ede9fe"},{l:"Encontros",v:meetings.length,i:"📅",c:"#0891b2",bg:"#cffafe"},{l:"Freq. Média",v:`${avg}%`,i:"📈",c:"#059669",bg:"#d1fae5"}].map(s=>(
             <div key={s.l} style={{...card,display:"flex",alignItems:"center",gap:14}}>
@@ -332,6 +388,7 @@ export default function App() {
     );
   };
 
+  // ── Groups ──
   const renderGroups = () => (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
@@ -363,6 +420,7 @@ export default function App() {
     </div>
   );
 
+  // ── Group Detail ──
   const renderGroupDetail = () => {
     if (!selGroup) return null;
     const mbs=gMems(selGroup.id), mts=gMeets(selGroup.id);
@@ -380,20 +438,37 @@ export default function App() {
             </button>
           ))}
         </div>
+
         {gTab==="members"&&<div>
           <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}><button style={btnStyle()} onClick={()=>{setModal("b");setForm({});}}>+ Adicionar Membro</button></div>
           {mbs.length===0?<div style={{...card,textAlign:"center",padding:32,color:C.muted}}>Nenhum membro. Adicione o primeiro!</div>
-          :mbs.map(mb=>{const f=mFreq(mb.id,selGroup.id);return(
-            <div key={mb.id} style={{...card,display:"flex",alignItems:"center",gap:14,padding:"16px 20px",marginBottom:10}}>
-              <Avatar name={mb.name} size={44}/>
-              <div style={{flex:1}}><div style={{fontWeight:600,color:C.text}}>{mb.name}</div><div style={{fontSize:12,color:C.muted}}>{mb.phone||"Sem telefone"}</div></div>
-              <Chip f={f}/>
-              <span style={{padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:fBg(f),color:fColor(f)}}>{fLabel(f)}</span>
-              <div style={{width:80}}><Bar v={f}/></div>
-              <button style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:16}} onClick={()=>delMember(mb.id)}>🗑️</button>
-            </div>
-          );})}
+          :mbs.map(mb=>{
+            const f=mFreq(mb.id,selGroup.id), age=calcAge(mb.birthdate), bs=birthdayStatus(mb.birthdate);
+            return(
+              <div key={mb.id} style={{...card,padding:"16px 20px",marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                  <Avatar name={mb.name} size={44}/>
+                  <div style={{flex:1,minWidth:140}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{fontWeight:600,color:C.text,fontSize:15}}>{mb.name}</span>
+                      {bs&&<BirthdayBadge dob={mb.birthdate} inline/>}
+                    </div>
+                    <div style={{fontSize:12,color:C.muted,marginTop:3,display:"flex",gap:12,flexWrap:"wrap"}}>
+                      {mb.phone&&<span>📞 {mb.phone}</span>}
+                      {age!==null&&<span>🎂 {age} anos ({fmtDateBR(mb.birthdate)})</span>}
+                      {mb.conversion_date&&<span>✝️ Convertido em {fmtDateBR(mb.conversion_date)}</span>}
+                    </div>
+                  </div>
+                  <Chip f={f}/>
+                  <span style={{padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:fBg(f),color:fColor(f)}}>{fLabel(f)}</span>
+                  <div style={{width:80}}><Bar v={f}/></div>
+                  <button style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:16}} onClick={()=>delMember(mb.id)}>🗑️</button>
+                </div>
+              </div>
+            );
+          })}
         </div>}
+
         {gTab==="meetings"&&<div>
           <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}><button style={btnStyle()} onClick={()=>{setModal("c");setForm({});}}>+ Novo Encontro</button></div>
           {mts.length===0?<div style={{...card,textAlign:"center",padding:32,color:C.muted}}>Nenhum encontro. Adicione o primeiro!</div>
@@ -418,6 +493,7 @@ export default function App() {
     );
   };
 
+  // ── Attendance ──
   const renderAttendance = () => {
     if (!selMeeting) return null;
     const gid=selMeeting.gid, group=groups.find(g=>g.id===gid), mbs=gMems(gid);
@@ -457,6 +533,7 @@ export default function App() {
     );
   };
 
+  // ── Reports ──
   const renderReports = () => {
     const mbs=rGroup?gMems(rGroup.id):[], mts=rGroup?[...gMeets(rGroup.id)].sort((a,b)=>new Date(a.date)-new Date(b.date)):[], f=rGroup?gFreq(rGroup.id):0;
     return (
@@ -514,7 +591,15 @@ export default function App() {
                 <tbody>
                   {[...mbs].sort((a,b)=>mFreq(b.id,rGroup.id)-mFreq(a.id,rGroup.id)).map(mb=>{const f=mFreq(mb.id,rGroup.id);return(
                     <tr key={mb.id} style={{borderBottom:`1px solid ${C.border}`}}>
-                      <td style={{padding:"12px 14px"}}><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar name={mb.name} size={32}/><div style={{fontWeight:600,color:C.text,fontSize:13}}>{mb.name}</div></div></td>
+                      <td style={{padding:"12px 14px"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <Avatar name={mb.name} size={32}/>
+                          <div>
+                            <div style={{fontWeight:600,color:C.text,fontSize:13}}>{mb.name}</div>
+                            {mb.birthdate&&<div style={{fontSize:11,color:C.muted}}>{calcAge(mb.birthdate)} anos</div>}
+                          </div>
+                        </div>
+                      </td>
                       {mts.map(mt=>{const s=getStatus(mt.id,mb.id);return(<td key={mt.id} style={{padding:"12px 8px",textAlign:"center",fontSize:16}} title={STATUS_META[s].label}>{STATUS_META[s].icon}</td>);})}
                       <td style={{padding:"12px 14px",textAlign:"center"}}><span style={{fontWeight:800,fontSize:15,color:fColor(f)}}>{f}%</span><div style={{width:60,margin:"4px auto 0"}}><Bar v={f} h={4}/></div></td>
                     </tr>
@@ -532,8 +617,10 @@ export default function App() {
     <div style={{display:"flex",minHeight:"100vh",fontFamily:"'Inter','Segoe UI',sans-serif",background:C.bg}}>
       <div style={{width:side?228:64,background:C.sideBg,display:"flex",flexDirection:"column",transition:"width 0.3s ease",overflow:"hidden",flexShrink:0,boxShadow:"4px 0 24px rgba(0,0,0,0.18)"}}>
         <div style={{padding:side?"24px 20px":"24px 12px",borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
-          {side?<div><div style={{fontWeight:900,fontSize:17,color:"white",letterSpacing:-0.5,lineHeight:1.2}}>UMADESC</div><div style={{fontSize:10,color:"#93c5fd",fontWeight:600,letterSpacing:1.5,marginTop:2}}>CONTROL SYSTEM</div></div>
-          :<div style={{textAlign:"center",fontSize:20}}>🎯</div>}
+          {side?<div>
+            <div style={{fontWeight:900,fontSize:17,color:"white",letterSpacing:-0.5,lineHeight:1.2}}>UMADESC</div>
+            <div style={{fontSize:10,color:"#93c5fd",fontWeight:600,letterSpacing:1.5,marginTop:2}}>CONTROL SYSTEM</div>
+          </div>:<div style={{textAlign:"center",fontSize:20}}>🎯</div>}
         </div>
         <nav style={{flex:1,padding:"12px 8px"}}>
           {navItems.map(item=>(
@@ -541,11 +628,17 @@ export default function App() {
               <span style={{fontSize:18,flexShrink:0}}>{item.icon}</span>{side&&item.label}
             </div>
           ))}
+          {/* Birthday nav badge */}
+          {birthdayAlerts.length>0&&side&&(
+            <div onClick={()=>setPage("dashboard")} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,cursor:"pointer",background:"rgba(124,58,237,0.2)",border:"1px solid rgba(196,181,253,0.3)",marginTop:8}}>
+              <span style={{fontSize:18}}>🎂</span>
+              <span style={{fontSize:12,fontWeight:700,color:"#c4b5fd"}}>{birthdayAlerts.length} aniversário{birthdayAlerts.length>1?"s":""}</span>
+            </div>
+          )}
         </nav>
-        {/* User info + logout */}
         {side&&<div style={{padding:"12px 16px",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-            <Avatar name={username} size={32} g="#2563eb,#7c3aed"/>
+            <Avatar name={username} size={32} g="2563eb,#7c3aed"/>
             <div><div style={{fontSize:13,fontWeight:700,color:"white"}}>{username}</div><div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>logado</div></div>
           </div>
           <button onClick={handleLogout} style={{width:"100%",padding:"8px 0",borderRadius:8,border:"1px solid rgba(255,255,255,0.15)",background:"transparent",color:"rgba(255,255,255,0.5)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Sair →</button>
